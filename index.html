@@ -109,9 +109,148 @@ body {
 			<div id="status-notice"></div>
 		</div>
 
+		<!-- caldera-boot -->
+		<script>
+// web_boot.js — загрузчик веб-сборки «Кальдеры»: выполняется до движка (tools/web_boot.py вставляет его в
+// build/web/index.html перед index.js). Об игре ничего не знает; состояние — в window.__caldera_boot.
+//   dpr_cap — потолок плотности пикселей (масштаб рендера): 0 — без потолка. Параметр ссылки dpr=1.5.
+//             Движок перечитывает window.devicePixelRatio каждый кадр, поэтому потолок можно менять на ходу.
+//   shim    — "on" (по умолчанию): на запрос WebGL «включён ли SCISSOR_TEST» отвечает копия состояния, без
+//             синхронного обращения к процессу видеокарты (движок спрашивает это каждый кадр перед выводом на
+//             экран); "off" (shim=0) — как в движке; "check" (shim=check) — отвечает из копии и сверяет её
+//             с настоящим ответом: shim_asked — спрошено, shim_mismatch — расхождений.
+//   pdb     — true: буфер холста сохраняется между кадрами, как просит движок (preserveDrawingBuffer);
+//             false (pdb=0) — контекст просят без сохранения: браузеру не нужна лишняя копия кадра.
+//             Поле показывает, что запрошено; что получилось — getContextAttributes() контекста.
+//   hz      — частота кадров браузера при загрузке страницы (оценка частоты экрана), 0 — ещё не измерена.
+(function () {
+	'use strict';
+	var SCISSOR_TEST = 0x0C11;
+	var HZ_FRAMES = 120;
+	var HZ_COMMON = [60, 90, 120, 144];
+	var HZ_SNAP = 0.07;
+	var OFF = ['0', 'off', 'false'];
+	var params = new URLSearchParams(window.location.search);
+	var own = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio')
+		|| Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'devicePixelRatio');
+	var startDpr = window.devicePixelRatio || 1;
+	function realDpr() {
+		return own && own.get ? own.get.call(window) || 1 : startDpr;
+	}
+	var shimParam = (params.get('shim') || '').toLowerCase();
+	var boot = {
+		dpr_cap: 0,
+		dpr_override: false,
+		shim: OFF.indexOf(shimParam) >= 0 ? 'off' : (shimParam === 'check' ? 'check' : 'on'),
+		shim_asked: 0,
+		shim_mismatch: 0,
+		pdb: OFF.indexOf((params.get('pdb') || '').toLowerCase()) < 0,
+		hz: 0,
+	};
+	Object.defineProperty(boot, 'dpr_real', { enumerable: true, get: realDpr });
+	Object.defineProperty(boot, 'dpr', { enumerable: true, get: function () { return window.devicePixelRatio; } });
+	var cap = parseFloat((params.get('dpr') || '').replace(',', '.'));
+	if (cap >= 0.5 && cap <= 4) {
+		boot.dpr_cap = cap;
+	}
+	try {
+		Object.defineProperty(window, 'devicePixelRatio', {
+			configurable: true,
+			enumerable: true,
+			get: function () {
+				var real = realDpr();
+				return boot.dpr_cap > 0 ? Math.min(real, boot.dpr_cap) : real;
+			},
+			set: function () {},
+		});
+		boot.dpr_override = true;
+	} catch (e) {
+		boot.dpr_override = false;
+	}
+
+	if (boot.shim !== 'off' && window.WebGL2RenderingContext) {
+		var proto = window.WebGL2RenderingContext.prototype;
+		var enable = proto.enable;
+		var disable = proto.disable;
+		var getParameter = proto.getParameter;
+		var scissor = new WeakMap();
+		proto.enable = function (capability) {
+			if (capability === SCISSOR_TEST) {
+				scissor.set(this, true);
+			}
+			return enable.call(this, capability);
+		};
+		proto.disable = function (capability) {
+			if (capability === SCISSOR_TEST) {
+				scissor.set(this, false);
+			}
+			return disable.call(this, capability);
+		};
+		proto.getParameter = function (pname) {
+			if (pname !== SCISSOR_TEST) {
+				return getParameter.call(this, pname);
+			}
+			var shadow = scissor.get(this) === true;
+			if (boot.shim === 'check') {
+				boot.shim_asked += 1;
+				if (getParameter.call(this, pname) !== shadow) {
+					boot.shim_mismatch += 1;
+				}
+			}
+			return shadow;
+		};
+		// Восстановленный контекст начинает с состояния по умолчанию — его копия тоже.
+		document.addEventListener('webglcontextrestored', function (event) {
+			try {
+				scissor.delete(event.target.getContext('webgl2'));
+			} catch (e) {
+				scissor = new WeakMap();
+			}
+		}, true);
+	} else {
+		boot.shim = 'off';
+	}
+
+	if (!boot.pdb) {
+		var getContext = HTMLCanvasElement.prototype.getContext;
+		HTMLCanvasElement.prototype.getContext = function (type, attributes) {
+			if ((type === 'webgl2' || type === 'webgl') && attributes && attributes.preserveDrawingBuffer) {
+				attributes = Object.assign({}, attributes, { preserveDrawingBuffer: false });
+			}
+			return getContext.call(this, type, attributes);
+		};
+	}
+
+	var deltas = [];
+	var last = 0;
+	function tick(now) {
+		if (last > 0) {
+			deltas.push(now - last);
+		}
+		last = now;
+		if (deltas.length < HZ_FRAMES) {
+			window.requestAnimationFrame(tick);
+			return;
+		}
+		deltas.sort(function (a, b) { return a - b; });
+		var fast = deltas[Math.floor(deltas.length / 10)];
+		var hz = fast > 0 ? 1000 / fast : 0;
+		for (var i = 0; i < HZ_COMMON.length; i++) {
+			if (Math.abs(hz - HZ_COMMON[i]) <= HZ_COMMON[i] * HZ_SNAP) {
+				hz = HZ_COMMON[i];
+			}
+		}
+		boot.hz = Math.round(hz);
+	}
+	window.requestAnimationFrame(tick);
+
+	window.__caldera_boot = boot;
+})();
+		</script>
+		<!-- /caldera-boot -->
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":442024,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":448360,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
