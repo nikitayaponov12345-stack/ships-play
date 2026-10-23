@@ -127,6 +127,10 @@ body {
 // media/<name>.webm (VP9; браузер не умеет — .mp4, H.264) без звука, по кругу, во весь экран с обрезкой (как
 // CoverPicture); stop() — пауза, ролик выгружен, элемент скрыт. state: off — нет или скрыт, loading, playing — кадры
 // идут, blocked — браузер не дал запустить (энергосбережение), error — нет файла или формата; name — текущий ролик.
+// M8-114: звук скрытой вкладки (требование Яндекс Игр 1.3: «при потере фокуса звук из игры останавливается»):
+// загрузчик запоминает создаваемые AudioContext (движок создаёт свой) и, когда вкладка скрыта (visibilitychange),
+// приостанавливает работающие, а когда снова видна — возобновляет те, что приостановил сам.
+//   audio_contexts — сколько контекстов создано, audio_running — сколько сейчас играет, audio_hidden — вкладка скрыта.
 (function () {
 	'use strict';
 	var SCISSOR_TEST = 0x0C11;
@@ -306,6 +310,43 @@ body {
 		}
 	};
 
+	var contexts = [];
+	boot.audio_contexts = 0;
+	boot.audio_hidden = false;
+	Object.defineProperty(boot, 'audio_running', {
+		enumerable: true,
+		get: function () {
+			return contexts.filter(function (ctx) { return ctx.state === 'running'; }).length;
+		},
+	});
+	var NativeAudioContext = window.AudioContext || window.webkitAudioContext;
+	if (NativeAudioContext) {
+		var TrackedAudioContext = function (options) {
+			var ctx = options === undefined ? new NativeAudioContext() : new NativeAudioContext(options);
+			contexts.push(ctx);
+			boot.audio_contexts = contexts.length;
+			return ctx;
+		};
+		TrackedAudioContext.prototype = NativeAudioContext.prototype;
+		window.AudioContext = TrackedAudioContext;
+		if (window.webkitAudioContext) {
+			window.webkitAudioContext = TrackedAudioContext;
+		}
+	}
+	function quiet() {}
+	document.addEventListener('visibilitychange', function () {
+		boot.audio_hidden = document.hidden;
+		contexts.forEach(function (ctx) {
+			if (document.hidden && ctx.state === 'running') {
+				ctx.__caldera_paused = true;
+				ctx.suspend().catch(quiet);
+			} else if (!document.hidden && ctx.__caldera_paused) {
+				ctx.__caldera_paused = false;
+				ctx.resume().catch(quiet);
+			}
+		});
+	});
+
 	window.__caldera_boot = boot;
 	window.__caldera_video = video;
 })();
@@ -313,7 +354,7 @@ body {
 		<!-- /caldera-boot -->
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":26820904,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":27810436,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
