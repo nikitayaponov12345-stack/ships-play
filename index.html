@@ -123,6 +123,10 @@ body {
 //             false (pdb=0) — контекст просят без сохранения: браузеру не нужна лишняя копия кадра.
 //             Поле показывает, что запрошено; что получилось — getContextAttributes() контекста.
 //   hz      — частота кадров браузера при загрузке страницы (оценка частоты экрана), 0 — ещё не измерена.
+// M8-113: window.__caldera_video — ролик страницы под холстом (видео каюты главного меню): play(name) —
+// media/<name>.webm (VP9; браузер не умеет — .mp4, H.264) без звука, по кругу, во весь экран с обрезкой (как
+// CoverPicture); stop() — пауза, ролик выгружен, элемент скрыт. state: off — нет или скрыт, loading, playing — кадры
+// идут, blocked — браузер не дал запустить (энергосбережение), error — нет файла или формата; name — текущий ролик.
 (function () {
 	'use strict';
 	var SCISSOR_TEST = 0x0C11;
@@ -244,13 +248,72 @@ body {
 	}
 	window.requestAnimationFrame(tick);
 
+	var video = { state: 'off', name: '', el: null };
+	function videoElement() {
+		if (video.el) {
+			return video.el;
+		}
+		var el = document.createElement('video');
+		el.muted = true;
+		el.defaultMuted = true;
+		el.loop = true;
+		el.playsInline = true;
+		el.preload = 'auto';
+		el.setAttribute('muted', '');
+		el.setAttribute('playsinline', '');
+		el.setAttribute('aria-hidden', 'true');
+		el.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;object-fit:cover;'
+			+ 'z-index:-1;pointer-events:none;display:none';
+		el.addEventListener('playing', function () {
+			if (video.name) {
+				video.state = 'playing';
+			}
+		});
+		el.addEventListener('error', function () {
+			if (video.name) {
+				video.state = 'error';
+			}
+		});
+		document.body.insertBefore(el, document.body.firstChild);
+		video.el = el;
+		return el;
+	}
+	video.play = function (name) {
+		var el = videoElement();
+		el.style.display = 'block';
+		if (video.name !== name) {
+			video.name = name;
+			video.state = 'loading';
+			el.src = 'media/' + name + (el.canPlayType('video/webm; codecs="vp9"') ? '.webm' : '.mp4');
+		}
+		var started = el.play();
+		if (started && started.catch) {
+			started.catch(function () {
+				if (video.name === name && video.state !== 'playing') {
+					video.state = 'blocked';
+				}
+			});
+		}
+	};
+	video.stop = function () {
+		video.name = '';
+		video.state = 'off';
+		if (video.el) {
+			video.el.pause();
+			video.el.removeAttribute('src');
+			video.el.load();
+			video.el.style.display = 'none';
+		}
+	};
+
 	window.__caldera_boot = boot;
+	window.__caldera_video = video;
 })();
 		</script>
 		<!-- /caldera-boot -->
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":26910984,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":26820904,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
