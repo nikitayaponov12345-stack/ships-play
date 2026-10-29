@@ -127,6 +127,8 @@ body {
 // загрузчик запоминает создаваемые AudioContext (движок создаёт свой) и, когда вкладка скрыта (visibilitychange),
 // приостанавливает работающие, а когда снова видна — возобновляет те, что приостановил сам.
 //   audio_contexts — сколько контекстов создано, audio_running — сколько сейчас играет, audio_hidden — вкладка скрыта.
+// M5-01 (пачка 52): в сборке для площадок (window.__caldera_bridge — tools/web_bridge.js, раньше этого кода) параметры
+// ссылки dpr, shim и pdb не читаются — значения по умолчанию (ROADMAP, веха M5).
 (function () {
 	'use strict';
 	var SCISSOR_TEST = 0x0C11;
@@ -134,7 +136,7 @@ body {
 	var HZ_COMMON = [60, 90, 120, 144];
 	var HZ_SNAP = 0.07;
 	var OFF = ['0', 'off', 'false'];
-	var params = new URLSearchParams(window.location.search);
+	var params = new URLSearchParams(window.__caldera_bridge ? '' : window.location.search);
 	var own = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio')
 		|| Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'devicePixelRatio');
 	var startDpr = window.devicePixelRatio || 1;
@@ -291,7 +293,7 @@ body {
 		<!-- /caldera-boot -->
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":11899124,"index.wasm":25621999},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":11912432,"index.wasm":25621999},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
