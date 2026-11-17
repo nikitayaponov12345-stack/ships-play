@@ -1,9 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 	<head>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
 		<title>ships</title>
+		<!-- web_shell.html — M8-354 (пачка 84): своя страница загрузки «Кальдеры» (html/custom_html_shell пресета Web;
+		слово Никиты 17.11: не заставка Godot, а своя — картинка, шкала и «сколько из скольки мегабайт загружено»).
+		Картинка — как в главном меню (index.loading_land.webp и index.loading_tall.webp кладёт рядом
+		tools/web_boot.py). Шкала — настоящие байты сети (слово Никиты 17.11: «нужно показывать реальную
+		загрузку»): движок считает распакованные байты (index.wasm 26,6 МБ, в сети — около 5–7), поэтому страница
+		сама считает каждый файл GODOT_CONFIG.fileSizes: сколько его пришло (доля распакованного) × его размер в
+		сети — Content-Length ответа (сжатого, если сервер сжал), нет его — оценка сборки window.__caldera_wire
+		(web_boot.py: gzip и brotli). Страница уходит, когда игра открыла первый экран (window.__caldera.scene —
+		Platform.publish_debug_state), не позже HIDE_AFTER_MS. Остальное — как в шаблоне движка (godot.html). -->
 		<style>
 html, body, #canvas {
 	margin: 0;
@@ -12,8 +21,8 @@ html, body, #canvas {
 }
 
 body {
-	color: white;
-	background-color: black;
+	color: #f3e3c2;
+	background-color: #1a1109;
 	overflow: hidden;
 	touch-action: none;
 }
@@ -26,68 +35,80 @@ body {
 	outline: none;
 }
 
-#status, #status-splash, #status-progress {
-	position: absolute;
-	left: 0;
-	right: 0;
-}
-
-#status, #status-splash {
-	top: 0;
-	bottom: 0;
-}
-
-#status {
-	background-color: #242424;
+#loader {
+	position: fixed;
+	inset: 0;
+	z-index: 10;
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
+	justify-content: flex-end;
 	align-items: center;
-	visibility: hidden;
+	background: #1a1109 url('index.loading_land.webp') center / cover no-repeat;
+	transition: opacity 0.4s ease;
 }
 
-#status-splash {
-	max-height: 100%;
-	max-width: 100%;
-	margin: auto;
+@media (orientation: portrait) {
+	#loader {
+		background-image: url('index.loading_tall.webp');
+	}
 }
 
-#status-splash.show-image--false {
-	display: none;
+#loader.gone {
+	opacity: 0;
+	pointer-events: none;
 }
 
-#status-splash.fullsize--true {
-	height: 100%;
-	width: 100%;
-	object-fit: contain;
+#load-box {
+	width: min(560px, 82vw);
+	margin-bottom: max(7vh, 32px);
+	padding: 14px 18px 12px;
+	background: rgba(26, 15, 7, 0.78);
+	border: 1px solid #b58b4c;
+	border-radius: 10px;
+	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 
-#status-splash.use-filter--false {
-	image-rendering: pixelated;
-}
-
-#status-progress, #status-notice {
-	display: none;
-}
-
-#status-progress {
-	bottom: 10%;
-	width: 50%;
-	margin: 0 auto;
-}
-
-#status-notice {
-	background-color: #5b3943;
-	border-radius: 0.5rem;
-	border: 1px solid #9b3943;
-	color: #e0e0e0;
-	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
-	line-height: 1.3;
-	margin: 0 2rem;
+#load-bar {
+	height: 14px;
+	border-radius: 7px;
+	background: #3b2410;
+	border: 1px solid #6b4a2a;
 	overflow: hidden;
-	padding: 1rem;
+}
+
+#load-fill {
+	width: 0;
+	height: 100%;
+	background: linear-gradient(#f7dc98, #c9952e);
+	transition: width 0.2s linear;
+}
+
+#load-bar.wait #load-fill {
+	width: 30%;
+	animation: load-wait 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes load-wait {
+	from { margin-left: 0; }
+	to { margin-left: 70%; }
+}
+
+#load-text {
+	margin-top: 8px;
+	min-height: 1.2em;
 	text-align: center;
-	z-index: 1;
+	font: 600 16px/1.2 Georgia, 'Times New Roman', serif;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.02em;
+}
+
+#load-notice {
+	display: none;
+	margin-top: 10px;
+	color: #ffc2b4;
+	font: 14px/1.35 system-ui, sans-serif;
+	text-align: center;
+	white-space: pre-line;
 }
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
@@ -103,14 +124,17 @@ body {
 			Your browser does not support JavaScript.
 		</noscript>
 
-		<div id="status">
-			<img id="status-splash" class="show-image--true fullsize--true use-filter--true" src="index.png" alt="">
-			<progress id="status-progress"></progress>
-			<div id="status-notice"></div>
+		<div id="loader">
+			<div id="load-box">
+				<div id="load-bar" class="wait"><div id="load-fill"></div></div>
+				<div id="load-text"></div>
+				<div id="load-notice"></div>
+			</div>
 		</div>
 
 		<!-- caldera-boot -->
 		<script>
+window.__caldera_wire = {"index.pck":{"gzip":12494053},"index.wasm":{"gzip":6882922}};
 // web_boot.js — загрузчик веб-сборки «Кальдеры»: выполняется до движка (tools/web_boot.py вставляет его в
 // build/web/index.html перед index.js). Об игре ничего не знает; состояние — в window.__caldera_boot.
 //   dpr_cap — потолок плотности пикселей (масштаб рендера): 0 — без потолка. Параметр ссылки dpr=1.5.
@@ -293,108 +317,144 @@ body {
 		<!-- /caldera-boot -->
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":16232492,"index.wasm":27835768},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":16644340,"index.wasm":27835768},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
 (function () {
-	const statusOverlay = document.getElementById('status');
-	const statusProgress = document.getElementById('status-progress');
-	const statusNotice = document.getElementById('status-notice');
+	const HIDE_AFTER_MS = 20000; // страница загрузки уходит и без первого экрана игры (на всякий случай)
+	const MB = 1024 * 1024;
+	const RAW = GODOT_CONFIG['fileSizes'] || {};
+	const WIRE = window.__caldera_wire || {};
+	const loader = document.getElementById('loader');
+	const bar = document.getElementById('load-bar');
+	const fill = document.getElementById('load-fill');
+	const text = document.getElementById('load-text');
+	const notice = document.getElementById('load-notice');
+	const ru = (navigator.language || '').toLowerCase().startsWith('ru');
+	const number = new Intl.NumberFormat(ru ? 'ru-RU' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+	const files = {}; // файл → { raw — распакованный размер, wire — размер в сети, got — пришло распакованных байт }
+	let shown = 0;
 
-	let initializing = true;
-	let statusMode = '';
-
-	function setStatusMode(mode) {
-		if (statusMode === mode || !initializing) {
-			return;
-		}
-		if (mode === 'hidden') {
-			statusOverlay.remove();
-			initializing = false;
-			return;
-		}
-		statusOverlay.style.visibility = 'visible';
-		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
-		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
-		statusMode = mode;
+	// Размер файла name в сети до ответа сервера: оценка сборки (gzip — так отдаёт большинство площадок), иначе — сам.
+	function guess(name, encoding) {
+		const est = WIRE[name] || {};
+		return Number(est[encoding === 'br' ? 'br' : 'gzip'] || est.gzip || RAW[name] || 0);
 	}
 
-	function setStatusNotice(text) {
-		while (statusNotice.lastChild) {
-			statusNotice.removeChild(statusNotice.lastChild);
+	// Пришло и всего в сети по всем файлам загрузки; файл, чей ответ ещё не пришёл, — по оценке сборки.
+	function wire() {
+		let got = 0, total = 0;
+		for (const name in RAW) {
+			const file = files[name];
+			const size = file ? file.wire : guess(name, '');
+			total += size;
+			if (file && file.raw > 0) {
+				got += Math.min(1, file.got / file.raw) * size;
+			}
 		}
-		const lines = text.split('\n');
-		lines.forEach((line) => {
-			statusNotice.appendChild(document.createTextNode(line));
-			statusNotice.appendChild(document.createElement('br'));
+		return [got, total];
+	}
+
+	// «7,2 из 18,5 МБ» — сколько пришло по сети из скольких (по-английски «7.2 of 18.5 MB»).
+	function progress() {
+		const [current, total] = wire();
+		if (total <= 0) {
+			return;
+		}
+		const share = Math.min(1, current / total);
+		if (share < shown) {
+			return;
+		}
+		shown = share;
+		bar.classList.remove('wait');
+		fill.style.width = (share * 100).toFixed(1) + '%';
+		text.textContent = ru ? number.format(current / MB) + ' из ' + number.format(total / MB) + ' МБ'
+			: number.format(current / MB) + ' of ' + number.format(total / MB) + ' MB';
+	}
+
+	// Ответы на файлы загрузки движка: размер в сети — из заголовков, пришедшие байты — по ходу чтения тела.
+	const nativeFetch = window.fetch.bind(window);
+	window.fetch = function (input, init) {
+		const url = typeof input === 'string' ? input : (input && input.url) || '';
+		const name = decodeURIComponent(String(url).split('?')[0].split('/').pop());
+		if (!(name in RAW)) {
+			return nativeFetch(input, init);
+		}
+		return nativeFetch(input, init).then((response) => {
+			if (!response.ok || !response.body) {
+				return response;
+			}
+			const encoding = (response.headers.get('content-encoding') || '').toLowerCase();
+			const length = Number(response.headers.get('content-length')) || 0;
+			const file = files[name] = { raw: Number(RAW[name]) || 0, wire: length || (encoding ? guess(name, encoding)
+				: Number(RAW[name]) || 0), got: 0 };
+			const reader = response.body.getReader();
+			const body = new ReadableStream({
+				pull(controller) {
+					return reader.read().then(({ done, value }) => {
+						if (done) {
+							controller.close();
+							return;
+						}
+						file.got += value.byteLength;
+						progress();
+						controller.enqueue(value);
+					});
+				},
+				cancel(reason) {
+					return reader.cancel(reason);
+				},
+			});
+			return new Response(body, { status: response.status, statusText: response.statusText,
+				headers: response.headers });
 		});
+	};
+
+	function hide() {
+		if (loader.classList.contains('gone')) {
+			return;
+		}
+		loader.classList.add('gone');
+		setTimeout(() => loader.remove(), 600);
 	}
 
-	function displayFailureNotice(err) {
+	// Игра открыла первый экран (главное меню или сцена дымового прогона) — страница загрузки уходит.
+	function waitScene() {
+		const started = performance.now();
+		const timer = setInterval(() => {
+			const state = window.__caldera;
+			if ((state && state.scene) || performance.now() - started > HIDE_AFTER_MS) {
+				clearInterval(timer);
+				hide();
+			}
+		}, 100);
+	}
+
+	function fail(err) {
 		console.error(err);
-		if (err instanceof Error) {
-			setStatusNotice(err.message);
-		} else if (typeof err === 'string') {
-			setStatusNotice(err);
-		} else {
-			setStatusNotice('An unknown error occurred.');
-		}
-		setStatusMode('notice');
-		initializing = false;
+		const message = err instanceof Error ? err.message : (typeof err === 'string' ? err : 'An unknown error occurred.');
+		bar.style.display = 'none';
+		text.style.display = 'none';
+		notice.textContent = message;
+		notice.style.display = 'block';
 	}
 
 	const missing = Engine.getMissingFeatures({
 		threads: GODOT_THREADS_ENABLED,
 	});
-
 	if (missing.length !== 0) {
-		if (GODOT_CONFIG['serviceWorker'] && GODOT_CONFIG['ensureCrossOriginIsolationHeaders'] && 'serviceWorker' in navigator) {
-			let serviceWorkerRegistrationPromise;
-			try {
-				serviceWorkerRegistrationPromise = navigator.serviceWorker.getRegistration();
-			} catch (err) {
-				serviceWorkerRegistrationPromise = Promise.reject(new Error('Service worker registration failed.'));
-			}
-			// There's a chance that installing the service worker would fix the issue
-			Promise.race([
-				serviceWorkerRegistrationPromise.then((registration) => {
-					if (registration != null) {
-						return Promise.reject(new Error('Service worker already exists.'));
-					}
-					return registration;
-				}).then(() => engine.installServiceWorker()),
-				// For some reason, `getRegistration()` can stall
-				new Promise((resolve) => {
-					setTimeout(() => resolve(), 2000);
-				}),
-			]).then(() => {
-				// Reload if there was no error.
-				window.location.reload();
-			}).catch((err) => {
-				console.error('Error while registering service worker:', err);
-			});
-		} else {
-			// Display the message as usual
-			const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
-			displayFailureNotice(missingMsg + missing.join('\n'));
-		}
-	} else {
-		setStatusMode('progress');
-		engine.startGame({
-			'onProgress': function (current, total) {
-				if (current > 0 && total > 0) {
-					statusProgress.value = current;
-					statusProgress.max = total;
-				} else {
-					statusProgress.removeAttribute('value');
-					statusProgress.removeAttribute('max');
-				}
-			},
-		}).then(() => {
-			setStatusMode('hidden');
-		}, displayFailureNotice);
+		fail('Error\nThe following features required to run Godot projects on the Web are missing:\n'
+			+ missing.join('\n'));
+		return;
 	}
+	engine.startGame({
+		'onProgress': progress, // байты движка не нужны: шкала — по сети (wire)
+	}).then(() => {
+		window.fetch = nativeFetch;
+		progress();
+		waitScene();
+	}, fail);
 }());
 		</script>
 	</body>
