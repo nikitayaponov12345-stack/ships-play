@@ -12,7 +12,8 @@
 		сама считает каждый файл GODOT_CONFIG.fileSizes: сколько его пришло (доля распакованного) × его размер в
 		сети — Content-Length ответа (сжатого, если сервер сжал), нет его — оценка сборки window.__caldera_wire
 		(web_boot.py: gzip и brotli). Страница уходит, когда игра открыла первый экран (window.__caldera.scene —
-		Platform.publish_debug_state), не позже HIDE_AFTER_MS. Остальное — как в шаблоне движка (godot.html). -->
+		Platform.publish_debug_state), не позже HIDE_AFTER_MS. Остальное — как в шаблоне движка (godot.html).
+		M8-368 (пачка 87): пакеты игры качает страница — window.__caldera_packs (Packs.JS_PACKS). -->
 		<style>
 html, body, #canvas {
 	margin: 0;
@@ -134,7 +135,7 @@ body {
 
 		<!-- caldera-boot -->
 		<script>
-window.__caldera_wire = {"index.pck":{"gzip":10731161},"index.wasm":{"gzip":6882922}};
+window.__caldera_wire = {"index.pck":{"gzip":10731550},"index.wasm":{"gzip":6882922}};
 // web_boot.js — загрузчик веб-сборки «Кальдеры»: выполняется до движка (tools/web_boot.py вставляет его в
 // build/web/index.html перед index.js). Об игре ничего не знает; состояние — в window.__caldera_boot.
 //   dpr_cap — потолок плотности пикселей (масштаб рендера): 0 — без потолка. Параметр ссылки dpr=1.5.
@@ -317,9 +318,61 @@ window.__caldera_wire = {"index.pck":{"gzip":10731161},"index.wasm":{"gzip":6882
 		<!-- /caldera-boot -->
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":13463640,"index.wasm":27835768},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":13465016,"index.wasm":27835768},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
+
+// M8-368 (пачка 87 «Быстрый старт»; галочка Никиты 18.11 «Пакеты — забирать без рывка»): пакеты игры (Packs,
+// tools/packs.py) качает страница, а не кадр движка: get(url, path, size) — тело ответа по мере прихода в буфер
+// размера size (размер пакета из packs.json; пришло больше — буфер растёт), когда пришло всё, — один Engine.copyToFS
+// в файл path; игра раз в кадр спрашивает poll(path): 'ready', 'failed' или сколько байт пришло.
+window.__caldera_packs = (function () {
+	const jobs = {};
+
+	function get(url, path, size) {
+		const job = jobs[path] = { state: 'loading', got: 0 };
+		fetch(url).then((response) => {
+			if (!response.ok || !response.body) {
+				throw new Error('HTTP ' + response.status);
+			}
+			const reader = response.body.getReader();
+			let data = new Uint8Array(Math.max(0, size || 0));
+			const pump = () => reader.read().then(({ done, value }) => {
+				if (done) {
+					return null;
+				}
+				if (job.got + value.byteLength > data.byteLength) {
+					const more = new Uint8Array(Math.max(data.byteLength * 2, job.got + value.byteLength));
+					more.set(data.subarray(0, job.got));
+					data = more;
+				}
+				data.set(value, job.got);
+				job.got += value.byteLength;
+				return pump();
+			});
+			return pump().then(() => {
+				engine.copyToFS(path, (job.got === data.byteLength ? data : data.slice(0, job.got)).buffer);
+				job.state = 'ready';
+			});
+		}).catch(() => {
+			job.state = 'failed';
+		});
+	}
+
+	function poll(path) {
+		const job = jobs[path];
+		if (!job) {
+			return 'failed';
+		}
+		if (job.state === 'loading') {
+			return String(job.got);
+		}
+		delete jobs[path];
+		return job.state;
+	}
+
+	return { get: get, poll: poll };
+}());
 
 (function () {
 	const HIDE_AFTER_MS = 20000; // страница загрузки уходит и без первого экрана игры (на всякий случай)
