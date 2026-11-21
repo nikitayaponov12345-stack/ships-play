@@ -14,7 +14,13 @@
 		(web_boot.py: gzip и brotli). Страница уходит, когда игра открыла первый экран (window.__caldera.scene —
 		Platform.publish_debug_state), не позже HIDE_AFTER_MS. Остальное — как в шаблоне движка (godot.html).
 		M8-368 (пачка 87): пакеты игры качает страница — window.__caldera_packs (Packs.JS_PACKS).
-		M8-371 (пачка 87): мегабайты шкалы — по 1 000 000 байт, как размеры сборки в отчётах Cowork. -->
+		M8-371 (пачка 87): мегабайты шкалы — по 1 000 000 байт, как размеры сборки в отчётах Cowork.
+		M8-390 (пачка 92; слова Никиты 20.11: «когда составляет 18,4 из 18,4 мб, то еще несколько секунд в этом состоянии
+		надо ждать, смысл полосы загрузки в том, чтобы игрок знал, сколько ему осталось ждать»): шкала — доля всего
+		ожидания, а не только сети. После того как пришёл последний байт, игра ещё запускается (замер Cowork 20.11: 3,5 с —
+		движок, код, данные, первый экран). Шкала делит ожидание по времени: сеть — время загрузки при нынешней скорости,
+		запуск — START_S секунд; пока идёт сеть, шкала доходит до доли сети (wireShare), потом идёт по времени запуска к
+		99 % и становится полной, когда открылся первый экран. Надпись «N из M МБ» — как была: сколько пришло по сети. -->
 		<style>
 html, body, #canvas {
 	margin: 0;
@@ -388,7 +394,13 @@ window.__caldera_packs = (function () {
 	const ru = (navigator.language || '').toLowerCase().startsWith('ru');
 	const number = new Intl.NumberFormat(ru ? 'ru-RU' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 	const files = {}; // файл → { raw — распакованный размер, wire — размер в сети, got — пришло распакованных байт }
+	const START_S = 3.5; // M8-390: запуск игры после загрузки, с (замер Cowork 20.11)
+	const TAIL = 0.99; // M8-390: до первого экрана шкала не полная
 	let shown = 0;
+	let firstByte = 0; // M8-390: когда пришёл первый байт (performance.now)
+	let netEnd = 0; // M8-390: когда пришёл последний байт
+	let netWeight = 0; // M8-390: доля сети во всём ожидании на момент последнего байта
+	let ticker = 0;
 
 	// Размер файла name в сети до ответа сервера: оценка сборки (gzip — так отдаёт большинство площадок), иначе — сам.
 	function guess(name, encoding) {
@@ -410,16 +422,39 @@ window.__caldera_packs = (function () {
 		return [got, total];
 	}
 
-	// «7,2 из 18,5 МБ» — сколько пришло по сети из скольких (по-английски «7.2 of 18.5 MB»).
+	// M8-390: доля сети во всём ожидании: время загрузки при нынешней скорости ÷ (оно же + запуск START_S).
+	function wireShare(current, total) {
+		const now = performance.now();
+		if (!firstByte && current > 0) {
+			firstByte = now;
+		}
+		const seconds = Math.max(0.05, (now - (firstByte || now)) / 1000);
+		const speed = current > 0 ? current / seconds : 0;
+		const netSeconds = speed > 0 ? total / speed : 0;
+		return netSeconds > 0 ? netSeconds / (netSeconds + START_S) : 0;
+	}
+
+	// M8-390: доля шкалы: сеть — до wireShare; пришло всё — по времени запуска к TAIL.
+	function barShare(current, total) {
+		if (current < total) {
+			return Math.min(1, current / total) * wireShare(current, total);
+		}
+		if (!netEnd) {
+			netEnd = performance.now();
+			netWeight = wireShare(current, total);
+			ticker = setInterval(progress, 100);
+		}
+		const t = (performance.now() - netEnd) / 1000;
+		return netWeight + (TAIL - netWeight) * (1 - Math.exp(-2.3 * t / START_S));
+	}
+
+	// «7,2 из 18,5 МБ» — сколько пришло по сети из скольких (по-английски «7.2 of 18.5 MB»); шкала — barShare.
 	function progress() {
 		const [current, total] = wire();
 		if (total <= 0) {
 			return;
 		}
-		const share = Math.min(1, current / total);
-		if (share < shown) {
-			return;
-		}
+		const share = Math.max(shown, barShare(current, total)); // M8-390: шкала не идёт назад, надпись — всегда
 		shown = share;
 		bar.classList.remove('wait');
 		fill.style.width = (share * 100).toFixed(1) + '%';
@@ -469,6 +504,8 @@ window.__caldera_packs = (function () {
 		if (loader.classList.contains('gone')) {
 			return;
 		}
+		clearInterval(ticker);
+		fill.style.width = '100%'; // M8-390: первый экран открыт — шкала полная
 		loader.classList.add('gone');
 		setTimeout(() => loader.remove(), 600);
 	}
