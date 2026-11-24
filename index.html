@@ -20,7 +20,15 @@
 		ожидания, а не только сети. После того как пришёл последний байт, игра ещё запускается (замер Cowork 20.11: 3,5 с —
 		движок, код, данные, первый экран). Шкала делит ожидание по времени: сеть — время загрузки при нынешней скорости,
 		запуск — START_S секунд; пока идёт сеть, шкала доходит до доли сети (wireShare), потом идёт по времени запуска к
-		99 % и становится полной, когда открылся первый экран. Надпись «N из M МБ» — как была: сколько пришло по сети. -->
+		99 % и становится полной, когда открылся первый экран. Надпись «N из M МБ» — как была: сколько пришло по сети.
+		M8-459 (пачка 105 «Запуск быстрее»; слова Никиты 24.11: «шкала показывает, что загрузились все мегабайты, но
+		надо еще несколько секунд ждать, шкала не доходит до конца»): запуск игры — один долгий кусок работы движка
+		(сборка скриптов, данные, меню), страница в это время стоит, и шкала M8-390 (тикер по времени) замирала. Теперь
+		шкала — преобразование (transform: scaleX), а не ширина: его анимацию ведёт поток композиции браузера, и она идёт,
+		пока движок занят. Когда пришёл последний байт и движок готов к запуску, страница задаёт анимацию шкалы до TAIL
+		длиной во время запуска на этом устройстве (startSeconds: замер облака START_REF_S × скорость устройства — проба
+		bench в начале страницы против BENCH_REF_MS облака; LAUNCH_STRETCH — с запасом, плавно замедляясь), ждёт два
+		кадра (анимация передана браузеру) и только потом запускает движок (engine.start). Полная — с первым экраном. -->
 		<style>
 html, body, #canvas {
 	margin: 0;
@@ -85,20 +93,24 @@ body {
 }
 
 #load-fill {
-	width: 0;
+	width: 100%;
 	height: 100%;
 	background: linear-gradient(#f7dc98, #c9952e);
-	transition: width 0.2s linear;
+	transform: scaleX(0);
+	transform-origin: left center;
+	will-change: transform;
+	transition: transform 0.2s linear;
 }
 
 #load-bar.wait #load-fill {
 	width: 30%;
+	transition: none;
 	animation: load-wait 1.4s ease-in-out infinite alternate;
 }
 
 @keyframes load-wait {
-	from { margin-left: 0; }
-	to { margin-left: 70%; }
+	from { transform: translateX(0); }
+	to { transform: translateX(233.3%); }
 }
 
 #load-text {
@@ -142,7 +154,7 @@ body {
 
 		<!-- caldera-boot -->
 		<script>
-window.__caldera_wire = {"index.pck":{"gzip":15903353},"index.wasm":{"gzip":6882922}};
+window.__caldera_wire = {"index.pck":{"gzip":15905230},"index.wasm":{"gzip":6882922}};
 // web_boot.js — загрузчик веб-сборки «Кальдеры»: выполняется до движка (tools/web_boot.py вставляет его в
 // build/web/index.html перед index.js). Об игре ничего не знает; состояние — в window.__caldera_boot.
 //   dpr_cap — потолок плотности пикселей (масштаб рендера): 0 — без потолка. Параметр ссылки dpr=1.5.
@@ -325,7 +337,7 @@ window.__caldera_wire = {"index.pck":{"gzip":15903353},"index.wasm":{"gzip":6882
 		<!-- /caldera-boot -->
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":18867428,"index.wasm":27835768},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":18874252,"index.wasm":27835768},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -394,13 +406,40 @@ window.__caldera_packs = (function () {
 	const ru = (navigator.language || '').toLowerCase().startsWith('ru');
 	const number = new Intl.NumberFormat(ru ? 'ru-RU' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 	const files = {}; // файл → { raw — распакованный размер, wire — размер в сети, got — пришло распакованных байт }
-	const START_S = 3.5; // M8-390: запуск игры после загрузки, с (замер Cowork 20.11)
-	const TAIL = 0.99; // M8-390: до первого экрана шкала не полная
+	const TAIL = 0.97; // M8-390: до первого экрана шкала не полная
+	const START_REF_S = 2.9; // M8-459: запуск после загрузки в облаке Cowork (Chromium без замедления), с
+	const BENCH_REF_MS = 11.0; // M8-459: проба bench там же, мс
+	const BENCH_ROUNDS = 500; // M8-459: проба — несколько миллионов действий (в облаке — около 10 мс)
+	const START_MIN_S = 1.5; // M8-459: пределы оценки запуска
+	const START_MAX_S = 40;
+	const LAUNCH_STRETCH = 1.4; // M8-459: анимация шкалы при запуске — длиннее оценки, плавно замедляясь
+	const LAUNCH_EASE = 'cubic-bezier(0.2, 0.6, 0.35, 1)';
 	let shown = 0;
 	let firstByte = 0; // M8-390: когда пришёл первый байт (performance.now)
-	let netEnd = 0; // M8-390: когда пришёл последний байт
-	let netWeight = 0; // M8-390: доля сети во всём ожидании на момент последнего байта
-	let ticker = 0;
+	let launched = false; // M8-459: шкалу ведёт анимация запуска
+	const load = window.__caldera_load = {}; // M8-459: проба, оценка, начало запуска и первый экран (замер Cowork)
+
+	// M8-459: скорость устройства — лучшее из трёх время одной и той же работы, мс.
+	function bench() {
+		let best = Infinity;
+		for (let run = 0; run < 3; run++) {
+			const t0 = performance.now();
+			const a = new Float64Array(4096);
+			let x = 0;
+			for (let k = 0; k < BENCH_ROUNDS; k++) {
+				for (let i = 0; i < a.length; i++) {
+					a[i] = Math.sqrt(a[i] + i * k) + x;
+					x = a[i] * 0.5 - x;
+				}
+			}
+			best = Math.min(best, performance.now() - t0 + (x > 1e300 ? 1 : 0));
+		}
+		return best;
+	}
+	load.bench = bench();
+	// M8-459: время запуска на этом устройстве, с.
+	const startSeconds = Math.min(START_MAX_S, Math.max(START_MIN_S, START_REF_S * load.bench / BENCH_REF_MS));
+	load.start_s = startSeconds;
 
 	// Размер файла name в сети до ответа сервера: оценка сборки (gzip — так отдаёт большинство площадок), иначе — сам.
 	function guess(name, encoding) {
@@ -422,7 +461,7 @@ window.__caldera_packs = (function () {
 		return [got, total];
 	}
 
-	// M8-390: доля сети во всём ожидании: время загрузки при нынешней скорости ÷ (оно же + запуск START_S).
+	// M8-390: доля сети во всём ожидании: время загрузки при нынешней скорости ÷ (оно же + запуск startSeconds).
 	function wireShare(current, total) {
 		const now = performance.now();
 		if (!firstByte && current > 0) {
@@ -431,33 +470,52 @@ window.__caldera_packs = (function () {
 		const seconds = Math.max(0.05, (now - (firstByte || now)) / 1000);
 		const speed = current > 0 ? current / seconds : 0;
 		const netSeconds = speed > 0 ? total / speed : 0;
-		return netSeconds > 0 ? netSeconds / (netSeconds + START_S) : 0;
+		return netSeconds > 0 ? netSeconds / (netSeconds + startSeconds) : 0;
 	}
 
-	// M8-390: доля шкалы: сеть — до wireShare; пришло всё — по времени запуска к TAIL.
+	// M8-390: доля шкалы, пока идёт сеть, — доля пришедшего × доля сети во всём ожидании (wireShare).
 	function barShare(current, total) {
-		if (current < total) {
-			return Math.min(1, current / total) * wireShare(current, total);
-		}
-		if (!netEnd) {
-			netEnd = performance.now();
-			netWeight = wireShare(current, total);
-			ticker = setInterval(progress, 100);
-		}
-		const t = (performance.now() - netEnd) / 1000;
-		return netWeight + (TAIL - netWeight) * (1 - Math.exp(-2.3 * t / START_S));
+		return Math.min(1, current / total) * wireShare(current, total);
 	}
 
-	// «7,2 из 18,5 МБ» — сколько пришло по сети из скольких (по-английски «7.2 of 18.5 MB»); шкала — barShare.
+	// M8-459: шкала — scaleX доли share, переход за seconds с кривой ease (анимацию ведёт поток композиции).
+	function setShare(share, seconds, ease) {
+		fill.style.transition = 'transform ' + seconds.toFixed(2) + 's ' + ease;
+		fill.style.transform = 'scaleX(' + share.toFixed(4) + ')';
+	}
+
+	// M8-459: пришло всё, движок готов к запуску — шкала идёт к TAIL за время запуска с запасом, сама.
+	function launch() {
+		if (launched) {
+			return;
+		}
+		launched = true;
+		bar.classList.remove('wait');
+		setShare(TAIL, startSeconds * LAUNCH_STRETCH, LAUNCH_EASE);
+		load.launch_at = performance.now();
+	}
+
+	// M8-459: промис — через n кадров браузера (анимация шкалы уже передана потоку композиции).
+	function frames(n) {
+		return new Promise((resolve) => {
+			const step = () => (n-- <= 0 ? resolve() : window.requestAnimationFrame(step));
+			window.requestAnimationFrame(step);
+		});
+	}
+
+	// «7,2 из 18,5 МБ» — сколько пришло по сети из скольких (по-английски «7.2 of 18.5 MB»); шкала — barShare, после
+	// launch — анимация запуска (надпись — всегда).
 	function progress() {
 		const [current, total] = wire();
 		if (total <= 0) {
 			return;
 		}
-		const share = Math.max(shown, barShare(current, total)); // M8-390: шкала не идёт назад, надпись — всегда
-		shown = share;
-		bar.classList.remove('wait');
-		fill.style.width = (share * 100).toFixed(1) + '%';
+		if (!launched) {
+			const share = Math.max(shown, barShare(current, total)); // M8-390: шкала не идёт назад
+			shown = share;
+			bar.classList.remove('wait');
+			setShare(share, 0.2, 'linear');
+		}
 		text.textContent = ru ? number.format(current / MB) + ' из ' + number.format(total / MB) + ' МБ'
 			: number.format(current / MB) + ' of ' + number.format(total / MB) + ' MB';
 	}
@@ -504,8 +562,7 @@ window.__caldera_packs = (function () {
 		if (loader.classList.contains('gone')) {
 			return;
 		}
-		clearInterval(ticker);
-		fill.style.width = '100%'; // M8-390: первый экран открыт — шкала полная
+		setShare(1, 0.15, 'linear'); // M8-390: первый экран открыт — шкала полная
 		loader.classList.add('gone');
 		setTimeout(() => loader.remove(), 600);
 	}
@@ -517,6 +574,7 @@ window.__caldera_packs = (function () {
 			const state = window.__caldera;
 			if ((state && state.scene) || performance.now() - started > HIDE_AFTER_MS) {
 				clearInterval(timer);
+				load.scene_at = performance.now();
 				hide();
 			}
 		}, 100);
@@ -539,11 +597,15 @@ window.__caldera_packs = (function () {
 			+ missing.join('\n'));
 		return;
 	}
-	engine.startGame({
-		'onProgress': progress, // байты движка не нужны: шкала — по сети (wire)
-	}).then(() => {
+	// M8-459: как engine.startGame, но между загрузкой и запуском — анимация шкалы и два кадра браузера.
+	const exe = GODOT_CONFIG['executable'];
+	const pack = GODOT_CONFIG['mainPack'] || exe + '.pck';
+	Promise.all([engine.init(exe), engine.preloadFile(pack, pack)]).then(() => {
 		window.fetch = nativeFetch;
 		progress();
+		launch();
+		return frames(2);
+	}).then(() => engine.start({ 'args': ['--main-pack', pack].concat(GODOT_CONFIG['args'] || []) })).then(() => {
 		waitScene();
 	}, fail);
 }());
