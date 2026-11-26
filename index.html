@@ -28,7 +28,27 @@
 		пока движок занят. Когда пришёл последний байт и движок готов к запуску, страница задаёт анимацию шкалы до TAIL
 		длиной во время запуска на этом устройстве (startSeconds: замер облака START_REF_S × скорость устройства — проба
 		bench в начале страницы против BENCH_REF_MS облака; LAUNCH_STRETCH — с запасом, плавно замедляясь), ждёт два
-		кадра (анимация передана браузеру) и только потом запускает движок (engine.start). Полная — с первым экраном. -->
+		кадра (анимация передана браузеру) и только потом запускает движок (engine.start). Полная — с первым экраном.
+		M8-477 (пачка 108 «Замечания 26.11»; слова Никиты 26.11: «загрузка по прежнему стопорится и ждет после того, как
+		доходит до максимума»; «мегабайты загрузились — а потом фейковая загрузка — нельзя сделать так, чтобы загрузка
+		была только пакета игры и больше не было ожиданий?»). Ожидание после мегабайт — запуск движка: он собирает
+		код игры, читает данные и строит меню (замер Cowork 26.11: ПК — 2,5 с, телефон — 6–14 с); убрать его нельзя, но
+		можно не ждать его отдельно. index.pck — только код, данные, шрифты, интерфейс и меню; картинки и звуки старта
+		— отдельным пакетом (CALDERA_FIRST — tools/packs.py). Движок запускается, как только пришли index.wasm и
+		index.pck, а пакет старта в это время качает поток страницы (Web Worker: ему запуск движка не мешает); игра
+		забирает пакет у страницы (window.__caldera_packs). Страница уходит, когда открыт первый экран и пакет скачан.
+		Шкала и надпись — настоящие: «N из M МБ» всех трёх файлов. В браузерах на Chromium их рисует тот же поток
+		страницы на холсте (OffscreenCanvas), поэтому мегабайты идут и пока движок запускается; в прочих (Safari,
+		Firefox — там это не проверено) и без потока — шкала страницы M8-459: пока движок запускается, её ведёт
+		анимация браузера — туда, куда мегабайты дойдут за это время, надпись — «Запускаем игру…». Мегабайты пришли
+		раньше, чем игра запустилась (быстрая сеть, файлы в кэше браузера), — надпись «Запускаем игру…», шкала идёт по
+		шагам запуска (печать движка и игры в консоль: ядро, графика, код, данные; последний шаг — первый экран), между
+		шагами — со скоростью уже пройденных; сколько шёл каждый шаг, страница запоминает на устройстве (localStorage)
+		— в следующий раз шкала идёт так же.
+		M8-478 (пачка 108): index.wasm отдаётся сборщику браузера настоящим ответом сети (движок и страница оборачивали
+		ответ в свой поток со счётом байт, и браузер не мог сохранить собранный код движка в свой кэш): при повторном
+		открытии собранный код берётся из кэша браузера — запуск короче на пятую часть-треть (замер Cowork 26.11 в
+		Chromium, каждый раз новый запуск браузера: 2,5 → 1,8–2,0 с). -->
 		<style>
 html, body, #canvas {
 	margin: 0;
@@ -122,6 +142,16 @@ body {
 	letter-spacing: 0.02em;
 }
 
+#load-canvas {
+	display: block;
+	width: 100%;
+	height: 42px;
+}
+
+#load-canvas[hidden] {
+	display: none;
+}
+
 #load-notice {
 	display: none;
 	margin-top: 10px;
@@ -146,15 +176,18 @@ body {
 
 		<div id="loader">
 			<div id="load-box">
-				<div id="load-bar" class="wait"><div id="load-fill"></div></div>
-				<div id="load-text"></div>
+				<canvas id="load-canvas" hidden></canvas>
+				<div id="load-dom">
+					<div id="load-bar" class="wait"><div id="load-fill"></div></div>
+					<div id="load-text"></div>
+				</div>
 				<div id="load-notice"></div>
 			</div>
 		</div>
 
 		<!-- caldera-boot -->
 		<script>
-window.__caldera_wire = {"index.pck":{"gzip":15922497},"index.wasm":{"gzip":6882922}};
+window.__caldera_wire = {"index.pck":{"gzip":2842246},"index.wasm":{"gzip":6882922},"packs/start-fe0e198c.pck":{"gzip":13075419}};
 // web_boot.js — загрузчик веб-сборки «Кальдеры»: выполняется до движка (tools/web_boot.py вставляет его в
 // build/web/index.html перед index.js). Об игре ничего не знает; состояние — в window.__caldera_boot.
 //   dpr_cap — потолок плотности пикселей (масштаб рендера): 0 — без потолка. Параметр ссылки dpr=1.5.
@@ -337,19 +370,41 @@ window.__caldera_wire = {"index.pck":{"gzip":15922497},"index.wasm":{"gzip":6882
 		<!-- /caldera-boot -->
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":18944932,"index.wasm":27835768},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":5688556,"index.wasm":27835768},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
+// M8-477: пакеты старта — файлы рядом со страницей, которые она качает сама, пока движок запускается: [{file, size}]
+// (строку подставляет tools/packs.py; пусто — сборка одним пакетом).
+const CALDERA_FIRST = [{"file":"packs/start-fe0e198c.pck","size":13275568}];
+// M8-477: печать движка — ещё и странице (шаги запуска на шкале): window.__caldera_print.
+GODOT_CONFIG['onPrint'] = function () {
+	console.log.apply(console, Array.from(arguments));
+	if (window.__caldera_print) {
+		window.__caldera_print(Array.from(arguments).join(' '));
+	}
+};
 const engine = new Engine(GODOT_CONFIG);
 
 // M8-368 (пачка 87 «Быстрый старт»; галочка Никиты 18.11 «Пакеты — забирать без рывка»): пакеты игры (Packs,
 // tools/packs.py) качает страница, а не кадр движка: get(url, path, size) — тело ответа по мере прихода в буфер
 // размера size (размер пакета из packs.json; пришло больше — буфер растёт), когда пришло всё, — один Engine.copyToFS
 // в файл path; игра раз в кадр спрашивает poll(path): 'ready', 'failed' или сколько байт пришло.
+// M8-477: пакет старта страница начинает качать сама, до игры (adopt — задание по имени файла); get с тем же именем
+// файла берёт это задание: файл уже пришёл — сразу в папку кэша.
 window.__caldera_packs = (function () {
-	const jobs = {};
+	const jobs = {}; // файл в папке кэша движка → задание
+	const first = {}; // имя файла пакета старта → задание, начатое страницей
 
-	function get(url, path, size) {
-		const job = jobs[path] = { state: 'loading', got: 0 };
+	// Задание: state — 'loading', 'ready' или 'failed'; got — пришло байт; buffer — файл целиком, пока ждёт места path.
+	function settle(job) {
+		if (job.state === 'loading' && job.buffer && job.path) {
+			engine.copyToFS(job.path, job.buffer);
+			job.buffer = null;
+			job.state = 'ready';
+		}
+	}
+
+	function load(url, size) {
+		const job = { state: 'loading', got: 0, buffer: null, path: '' };
 		fetch(url).then((response) => {
 			if (!response.ok || !response.body) {
 				throw new Error('HTTP ' + response.status);
@@ -370,12 +425,28 @@ window.__caldera_packs = (function () {
 				return pump();
 			});
 			return pump().then(() => {
-				engine.copyToFS(path, (job.got === data.byteLength ? data : data.slice(0, job.got)).buffer);
-				job.state = 'ready';
+				job.buffer = (job.got === data.byteLength ? data : data.slice(0, job.got)).buffer;
+				settle(job);
 			});
 		}).catch(() => {
 			job.state = 'failed';
 		});
+		return job;
+	}
+
+	function nameOf(url) {
+		return decodeURIComponent(String(url).split('?')[0].split('/').pop());
+	}
+
+	function get(url, path, size) {
+		let job = first[nameOf(url)];
+		delete first[nameOf(url)];
+		if (!job || job.state === 'failed') {
+			job = load(url, size);
+		}
+		job.path = path;
+		jobs[path] = job;
+		settle(job);
 	}
 
 	function poll(path) {
@@ -390,34 +461,366 @@ window.__caldera_packs = (function () {
 		return job.state;
 	}
 
-	return { get: get, poll: poll };
+	// M8-477: задание пакета старта name, который качает страница (его потом заберёт игра — get): job — уже начатое
+	// (load), нет его — новое (файл придёт из потока страницы).
+	function adopt(name, job) {
+		first[name] = job || { state: 'loading', got: 0, buffer: null, path: '' };
+		return first[name];
+	}
+
+	return { get: get, poll: poll, adopt: adopt, load: load, settle: settle };
 }());
+
+// M8-477: счёт загрузки — одна функция для страницы и для её потока (Web Worker собирается из текста этих функций,
+// поэтому снаружи они ничего не берут). Файлы: raw — распакованный размер, wire — размер в сети, got — пришло
+// распакованных байт, need — без файла движок не запустить. Шаги запуска STEPS — метка и время шага, мс: как шли в
+// прошлый запуск на этом устройстве (launch: own — страница помнит их в localStorage), а в первый раз — как в облаке
+// Cowork (замер 26.11), со скоростью устройства по оценке страницы (pace — во сколько раз оно медленнее облака; дальше
+// — по уже пройденным шагам). Доля запуска — пройденные шаги и нынешний шаг по его времени, до следующего шага шкала
+// сама не доходит (EDGE).
+// Шкала: пока идёт сеть — доля мегабайт; движок запущен — не дальше доли запуска (с места, где он начался: доля
+// нужных ему файлов), и не идёт назад. Надпись: «N из M МБ», а когда пришло всё и игра ещё запускается — LAUNCH_TEXT.
+function LoadModel(ru) {
+	var MB = 1000 * 1000; // M8-371: десятичные МБ, как размеры сборки в отчётах
+	var STEPS = [['engine', 100], ['gl', 150], ['build', 150], ['data', 1150], ['scene', 575]];
+	var EDGE = 0.9;
+	var LAUNCH_TEXT = ru ? 'Запускаем игру…' : 'Starting the game…';
+	var number = new Intl.NumberFormat(ru ? 'ru-RU' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+	var files = {};
+	var totalRef = 0;
+	var launchAt = -1;
+	var pace = 1;
+	var reached = 0;
+	var reachedAt = 0;
+	var next = 0;
+	var done = false;
+	var shown = 0;
+	STEPS.forEach(function (step) { totalRef += step[1]; });
+
+	function file(name, raw, wire, need) {
+		files[name] = { raw: raw, wire: wire, got: 0, need: need };
+	}
+
+	function got(name, bytes, wire) {
+		var entry = files[name];
+		if (!entry) {
+			return;
+		}
+		entry.got = Math.max(entry.got, bytes);
+		if (wire > 0) {
+			entry.wire = wire;
+		}
+	}
+
+	// Файл name не пришёл (сеть): из счёта — вон (игра заберёт его позже сама).
+	function drop(name) {
+		delete files[name];
+	}
+
+	// Пришло, всего и нужно движку — в байтах сети.
+	function wire() {
+		var current = 0;
+		var total = 0;
+		var need = 0;
+		for (var name in files) {
+			var entry = files[name];
+			total += entry.wire;
+			current += entry.raw > 0 ? Math.min(1, entry.got / entry.raw) * entry.wire : 0;
+			need += entry.need ? entry.wire : 0;
+		}
+		return [current, total, need];
+	}
+
+	function launch(now, guess, own) {
+		launchAt = now;
+		reachedAt = now;
+		pace = guess > 0 ? guess : 1;
+		if (own && own.length) {
+			STEPS = own;
+			pace = 1;
+			totalRef = 0;
+			STEPS.forEach(function (step) { totalRef += step[1]; });
+		}
+	}
+
+	function mark(key, now) {
+		var sum = 0;
+		for (var i = 0; i < STEPS.length; i++) {
+			sum += STEPS[i][1];
+			if (STEPS[i][0] !== key) {
+				continue;
+			}
+			if (sum > reached) {
+				reached = sum;
+				reachedAt = now;
+				next = i + 1;
+				if (launchAt >= 0 && now > launchAt) {
+					pace = (now - launchAt) / sum;
+				}
+			}
+			done = done || key === 'scene';
+			return;
+		}
+	}
+
+	function started(now) {
+		if (done) {
+			return 1;
+		}
+		if (launchAt < 0) {
+			return 0;
+		}
+		var step = next < STEPS.length ? STEPS[next][1] : 0;
+		return (reached + Math.min(step * EDGE, (now - reachedAt) / pace)) / totalRef;
+	}
+
+	function view(now) {
+		var sizes = wire();
+		if (sizes[1] <= 0) {
+			return { wait: true, share: shown, text: '', loaded: false };
+		}
+		var share = Math.min(1, sizes[0] / sizes[1]);
+		if (launchAt >= 0) {
+			var from = sizes[2] / sizes[1];
+			share = Math.min(share, from + (1 - from) * started(now));
+		}
+		shown = Math.max(shown, share);
+		var loaded = sizes[0] >= sizes[1] - 0.5;
+		var megabytes = number.format(sizes[0] / MB) + (ru ? ' из ' : ' of ') + number.format(sizes[1] / MB)
+			+ (ru ? ' МБ' : ' MB');
+		return { wait: sizes[0] <= 0, share: shown, loaded: loaded, text: loaded && !done ? LAUNCH_TEXT : megabytes };
+	}
+
+	return { file: file, got: got, drop: drop, launch: launch, mark: mark, view: view, totalRef: totalRef,
+		keys: STEPS.map(function (step) { return step[0]; }), launchText: LAUNCH_TEXT };
+}
+
+// M8-477: шкала и надпись на холсте canvas (поток страницы рисует их, пока движок запускается): вид — как у шкалы
+// страницы (#load-bar, #load-text); цифры — в ячейках одной ширины (у Georgia цифры разной ширины — надпись бы
+// дрожала); шкала идёт к своей доле плавно.
+function LoadPainter(canvas) {
+	var BAR = 14;
+	var GAP = 8;
+	var RADIUS = 7;
+	var FONT = '600 16px Georgia, "Times New Roman", serif';
+	var SPACING = 0.32; // letter-spacing страницы: 0,02em
+	var EASE = 12; // доля пути к нужной доле шкалы за секунду
+	var WAIT_SPAN = 0.3; // ожидание первого байта: бегунок — доля ширины…
+	var WAIT_MS = 1400; // …и время его пути в одну сторону
+	var ctx = canvas.getContext('2d');
+	var width = 0;
+	var height = 0;
+	var scale = 1;
+	var shown = 0;
+	var last = 0;
+	var digit = 0;
+
+	function resize(w, h, dpr) {
+		width = w;
+		height = h;
+		scale = dpr;
+		canvas.width = Math.max(1, Math.round(w * dpr));
+		canvas.height = Math.max(1, Math.round(h * dpr));
+		digit = 0;
+	}
+
+	function round(x, y, w, h, r) {
+		ctx.beginPath();
+		ctx.moveTo(x + r, y);
+		ctx.arcTo(x + w, y, x + w, y + h, r);
+		ctx.arcTo(x + w, y + h, x, y + h, r);
+		ctx.arcTo(x, y + h, x, y, r);
+		ctx.arcTo(x, y, x + w, y, r);
+		ctx.closePath();
+	}
+
+	function draw(view, now) {
+		var dt = last > 0 ? Math.min(0.25, (now - last) / 1000) : 0;
+		last = now;
+		shown += (view.share - shown) * Math.min(1, dt * EASE);
+		ctx.setTransform(scale, 0, 0, scale, 0, 0);
+		ctx.clearRect(0, 0, width, height);
+		round(0.5, 0.5, width - 1, BAR - 1, RADIUS);
+		ctx.fillStyle = '#3b2410';
+		ctx.fill();
+		ctx.strokeStyle = '#6b4a2a';
+		ctx.lineWidth = 1;
+		ctx.stroke();
+		ctx.save();
+		round(1, 1, width - 2, BAR - 2, RADIUS - 1);
+		ctx.clip();
+		var fill = ctx.createLinearGradient(0, 0, 0, BAR);
+		fill.addColorStop(0, '#f7dc98');
+		fill.addColorStop(1, '#c9952e');
+		ctx.fillStyle = fill;
+		if (view.wait) {
+			var phase = (now / WAIT_MS) % 2;
+			var t = phase < 1 ? phase : 2 - phase;
+			ctx.fillRect(1 + (width - 2) * (1 - WAIT_SPAN) * t * t * (3 - 2 * t), 1, (width - 2) * WAIT_SPAN, BAR - 2);
+		} else {
+			ctx.fillRect(1, 1, (width - 2) * shown, BAR - 2);
+		}
+		ctx.restore();
+		ctx.font = FONT;
+		ctx.fillStyle = '#f3e3c2';
+		ctx.textBaseline = 'middle';
+		if (!digit) {
+			for (var d = 0; d < 10; d++) {
+				digit = Math.max(digit, ctx.measureText(String(d)).width);
+			}
+		}
+		var cells = [];
+		var sum = 0;
+		for (var i = 0; i < view.text.length; i++) {
+			var own = ctx.measureText(view.text[i]).width;
+			var cell = (view.text[i] >= '0' && view.text[i] <= '9' ? digit : own) + SPACING;
+			cells.push([cell, own]);
+			sum += cell;
+		}
+		var x = (width - sum) / 2;
+		for (var j = 0; j < view.text.length; j++) {
+			ctx.fillText(view.text[j], x + (cells[j][0] - cells[j][1]) / 2, BAR + GAP + (height - BAR - GAP) / 2);
+			x += cells[j][0];
+		}
+	}
+
+	return { resize: resize, draw: draw };
+}
+
+// M8-477: поток страницы (Web Worker; scope — его self): качает пакеты старта и рисует шкалу и надпись на
+// холсте, который страница отдала ему (OffscreenCanvas; холста нет — только качает), — и пока главный поток занят
+// запуском движка. Страница шлёт: init (холст, язык, размер), file / got (файлы, что качает она сама), fetch (пакет
+// старта — скачать), launch и mark (запуск движка и его шаги), size. Поток шлёт: ready (готов), got (сколько
+// пришло), file (пакет целиком — буфер передаётся без копии), fail (не пришёл). Страница загрузки ушла — поток
+// останавливает страница (terminate).
+function loadWorker(scope) {
+	var REPORT_MS = 100;
+	var FRAME_MS = 40; // кадр шкалы: 25 в секунду — запуску движка поток не мешает
+	var model = null;
+	var painter = null;
+
+	function loop() {
+		var now = performance.now();
+		painter.draw(model.view(now), now);
+		setTimeout(loop, FRAME_MS);
+	}
+
+	function download(name, url, size) {
+		fetch(url).then(function (response) {
+			if (!response.ok || !response.body) {
+				throw new Error('HTTP ' + response.status);
+			}
+			var length = Number(response.headers.get('content-length')) || 0;
+			var reader = response.body.getReader();
+			var data = new Uint8Array(Math.max(0, size || 0));
+			var got = 0;
+			var told = 0;
+			function pump() {
+				return reader.read().then(function (part) {
+					if (part.done) {
+						return null;
+					}
+					if (got + part.value.byteLength > data.byteLength) {
+						var more = new Uint8Array(Math.max(data.byteLength * 2, got + part.value.byteLength));
+						more.set(data.subarray(0, got));
+						data = more;
+					}
+					data.set(part.value, got);
+					got += part.value.byteLength;
+					model.got(name, got, length);
+					if (performance.now() - told > REPORT_MS) {
+						told = performance.now();
+						scope.postMessage({ t: 'got', name: name, got: got, wire: length });
+					}
+					return pump();
+				});
+			}
+			return pump().then(function () {
+				var buffer = (got === data.byteLength ? data : data.slice(0, got)).buffer;
+				scope.postMessage({ t: 'file', name: name, got: got, wire: length, at: Date.now(), buffer: buffer },
+					[buffer]);
+			});
+		}).catch(function () {
+			model.drop(name);
+			scope.postMessage({ t: 'fail', name: name });
+		});
+	}
+
+	scope.onmessage = function (event) {
+		var d = event.data;
+		if (d.t === 'init') {
+			model = LoadModel(d.ru);
+			if (d.canvas) {
+				painter = LoadPainter(d.canvas);
+				painter.resize(d.w, d.h, d.dpr);
+				loop();
+			}
+		} else if (d.t === 'file') {
+			model.file(d.name, d.raw, d.wire, d.need);
+		} else if (d.t === 'got') {
+			model.got(d.name, d.got, d.wire);
+		} else if (d.t === 'fetch') {
+			download(d.name, d.url, d.size);
+		} else if (d.t === 'launch') {
+			model.launch(performance.now(), d.pace, d.steps);
+		} else if (d.t === 'mark') {
+			model.mark(d.key, performance.now());
+		} else if (d.t === 'size' && painter) {
+			painter.resize(d.w, d.h, d.dpr);
+		}
+	};
+	scope.postMessage({ t: 'ready' });
+}
 
 (function () {
 	const HIDE_AFTER_MS = 20000; // страница загрузки уходит и без первого экрана игры (на всякий случай)
-	const MB = 1000 * 1000; // M8-371: десятичные МБ (было 1024 × 1024 — «из 18,6» вместо 19,6 по отчёту)
 	const RAW = GODOT_CONFIG['fileSizes'] || {};
 	const WIRE = window.__caldera_wire || {};
 	const loader = document.getElementById('loader');
+	const canvas = document.getElementById('load-canvas');
+	const dom = document.getElementById('load-dom');
 	const bar = document.getElementById('load-bar');
 	const fill = document.getElementById('load-fill');
 	const text = document.getElementById('load-text');
 	const notice = document.getElementById('load-notice');
 	const ru = (navigator.language || '').toLowerCase().startsWith('ru');
-	const number = new Intl.NumberFormat(ru ? 'ru-RU' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-	const files = {}; // файл → { raw — распакованный размер, wire — размер в сети, got — пришло распакованных байт }
-	const TAIL = 0.97; // M8-390: до первого экрана шкала не полная
+	const TAIL = 0.97; // M8-390: шкала страницы (без потока) до первого экрана не полная
 	const START_REF_S = 2.9; // M8-459: запуск после загрузки в облаке Cowork (Chromium без замедления), с
 	const BENCH_REF_MS = 11.0; // M8-459: проба bench там же, мс
 	const BENCH_ROUNDS = 500; // M8-459: проба — несколько миллионов действий (в облаке — около 10 мс)
 	const START_MIN_S = 1.5; // M8-459: пределы оценки запуска
 	const START_MAX_S = 40;
-	const LAUNCH_STRETCH = 1.4; // M8-459: анимация шкалы при запуске — длиннее оценки, плавно замедляясь
+	const LAUNCH_STRETCH = 1.4; // M8-459: анимация шкалы страницы при запуске — длиннее оценки, плавно замедляясь
 	const LAUNCH_EASE = 'cubic-bezier(0.2, 0.6, 0.35, 1)';
-	let shown = 0;
-	let firstByte = 0; // M8-390: когда пришёл первый байт (performance.now)
-	let launched = false; // M8-459: шкалу ведёт анимация запуска
-	const load = window.__caldera_load = {}; // M8-459: проба, оценка, начало запуска и первый экран (замер Cowork)
+	const CANVAS_H = 42; // M8-477: высота холста, CSS px (шкала 14, промежуток 8, строка 20)
+	// M8-477: шкалу на холсте рисует поток страницы только в браузерах на Chromium (Chrome, Edge, Opera, Яндекс
+	// Браузер, WebView Android): там проверено (замер Cowork 26.11), что кадры потока идут на экран, пока главный
+	// поток занят запуском движка. В Safari и Firefox это не проверено — там шкала страницы (M8-459: её анимацию
+	// ведёт сам браузер), а поток только качает пакеты старта.
+	const CANVAS_OK = /Chrom(e|ium)\//.test(navigator.userAgent);
+	const STEPS_KEY = 'caldera_start_steps'; // M8-477: шаги прошлого запуска на этом устройстве (localStorage)
+	const STEPS_MIN_MS = 300; // …годятся, если весь запуск — в этих пределах
+	const STEPS_MAX_MS = 120000;
+	// M8-477: печать движка и игры → шаг запуска (последний шаг, первый экран, — по window.__caldera.scene).
+	const PRINTS = [['Godot Engine v', 'engine'], ['OpenGL API', 'gl'], ['Build configuration', 'build'],
+		['[Data] loaded', 'data']];
+	const model = LoadModel(ru);
+	const exe = GODOT_CONFIG['executable'];
+	const pack = GODOT_CONFIG['mainPack'] || exe + '.pck';
+	const wasm = exe + '.wasm';
+	const streaming = typeof WebAssembly.instantiateStreaming === 'function'; // M8-478: сборка кода по ходу загрузки
+	let wasmReal = null; // M8-478: настоящий ответ сети на index.wasm
+	const firstJobs = {}; // M8-477: имя файла пакета старта → задание window.__caldera_packs
+	let firstLeft = 0; // сколько пакетов старта ещё в пути
+	let worker = null; // M8-477: поток страницы готов — качает пакеты старта…
+	let drawn = false; // M8-477: …и рисует шкалу и надпись на холсте (иначе их рисует страница)
+	let launched = false; // движок запущен (engine.start)
+	let busy = false; // …и ещё запускается: страница стоит, шкалу страницы ведёт анимация запуска
+	let domShare = 0; // доля шкалы страницы (без потока)
+	let firstByte = 0; // когда пришёл первый байт (скорость сети для анимации запуска)
+	// Замеры Cowork: mode — кто рисует шкалу ('canvas' — поток страницы, 'dom' — страница), worker — есть ли поток,
+	// bench и start_s — проба и оценка запуска, launch_at, scene_at, shown_at — запуск, первый экран, уход страницы.
+	const load = window.__caldera_load = { mode: 'dom', worker: false };
 
 	// M8-459: скорость устройства — лучшее из трёх время одной и той же работы, мс.
 	function bench() {
@@ -437,90 +840,143 @@ window.__caldera_packs = (function () {
 		return best;
 	}
 	load.bench = bench();
-	// M8-459: время запуска на этом устройстве, с.
-	const startSeconds = Math.min(START_MAX_S, Math.max(START_MIN_S, START_REF_S * load.bench / BENCH_REF_MS));
+	// M8-477: шаги steps ([[метка, мс], …]) годятся счёту: метки — из его шагов, по порядку (какой-то печати может
+	// не быть — шаг пропущен), последняя — первый экран, весь запуск — в пределах.
+	function stepsFit(steps) {
+		let at = -1;
+		let total = 0;
+		const ordered = Array.isArray(steps) && steps.length >= 2 && steps.every((step) => {
+			const index = model.keys.indexOf(step[0]);
+			const next = index > at && Number(step[1]) > 0;
+			at = index;
+			total += Number(step[1]) || 0;
+			return next;
+		});
+		return ordered && steps[steps.length - 1][0] === 'scene' && total >= STEPS_MIN_MS && total <= STEPS_MAX_MS;
+	}
+
+	// M8-477: шаги прошлого запуска на этом устройстве; нет или не годятся — пусто.
+	function lastSteps() {
+		try {
+			const saved = JSON.parse(window.localStorage.getItem(STEPS_KEY) || '[]');
+			return stepsFit(saved) ? saved : [];
+		} catch (e) {
+			return [];
+		}
+	}
+	const ownSteps = lastSteps();
+	const stepTimes = []; // шаги этого запуска: [метка, когда пройдена]
+	// M8-459: время запуска на этом устройстве, с; M8-477: если игра здесь уже запускалась — как в прошлый раз.
+	const startSeconds = Math.min(START_MAX_S, Math.max(START_MIN_S, ownSteps.length
+		? ownSteps.reduce((sum, step) => sum + step[1], 0) / 1000 : START_REF_S * load.bench / BENCH_REF_MS));
 	load.start_s = startSeconds;
+	load.own_steps = ownSteps.length > 0;
 
-	// Размер файла name в сети до ответа сервера: оценка сборки (gzip — так отдаёт большинство площадок), иначе — сам.
-	function guess(name, encoding) {
+	function post(message, transfer) {
+		if (worker) {
+			worker.postMessage(message, transfer || []);
+		}
+	}
+
+	// Счёт загрузки — потоку страницы, если шкалу рисует он.
+	function tell(message) {
+		if (drawn) {
+			post(message);
+		}
+	}
+
+	// Размер файла name в сети до ответа сервера: оценка сборки (gzip — так отдаёт большинство площадок), иначе — raw.
+	function guess(name, encoding, raw) {
 		const est = WIRE[name] || {};
-		return Number(est[encoding === 'br' ? 'br' : 'gzip'] || est.gzip || RAW[name] || 0);
+		return Number(est[encoding === 'br' ? 'br' : 'gzip'] || est.gzip || raw || 0);
 	}
 
-	// Пришло и всего в сети по всем файлам загрузки; файл, чей ответ ещё не пришёл, — по оценке сборки.
-	function wire() {
-		let got = 0, total = 0;
-		for (const name in RAW) {
-			const file = files[name];
-			const size = file ? file.wire : guess(name, '');
-			total += size;
-			if (file && file.raw > 0) {
-				got += Math.min(1, file.got / file.raw) * size;
-			}
-		}
-		return [got, total];
-	}
-
-	// M8-390: доля сети во всём ожидании: время загрузки при нынешней скорости ÷ (оно же + запуск startSeconds).
-	function wireShare(current, total) {
-		const now = performance.now();
-		if (!firstByte && current > 0) {
-			firstByte = now;
-		}
-		const seconds = Math.max(0.05, (now - (firstByte || now)) / 1000);
-		const speed = current > 0 ? current / seconds : 0;
-		const netSeconds = speed > 0 ? total / speed : 0;
-		return netSeconds > 0 ? netSeconds / (netSeconds + startSeconds) : 0;
-	}
-
-	// M8-390: доля шкалы, пока идёт сеть, — доля пришедшего × доля сети во всём ожидании (wireShare).
-	function barShare(current, total) {
-		return Math.min(1, current / total) * wireShare(current, total);
-	}
-
-	// M8-459: шкала — scaleX доли share, переход за seconds с кривой ease (анимацию ведёт поток композиции).
+	// M8-459: шкала страницы — scaleX доли share, переход за seconds с кривой ease (анимацию ведёт поток композиции).
 	function setShare(share, seconds, ease) {
 		fill.style.transition = 'transform ' + seconds.toFixed(2) + 's ' + ease;
 		fill.style.transform = 'scaleX(' + share.toFixed(4) + ')';
 	}
 
-	// M8-459: пришло всё, движок готов к запуску — шкала идёт к TAIL за время запуска с запасом, сама.
-	function launch() {
-		if (launched) {
+	// Шкала и надпись страницы (поток страницы рисует сам): по счёту. Пока движок запускается (busy), шкалу ведёт
+	// анимация запуска, надпись — «Запускаем игру…» (launch): их не трогать; после запуска шкала назад не идёт
+	// (domShare).
+	function paint() {
+		if (drawn || busy) {
 			return;
 		}
-		launched = true;
+		const view = model.view(performance.now());
+		if (view.wait) {
+			return;
+		}
 		bar.classList.remove('wait');
-		setShare(TAIL, startSeconds * LAUNCH_STRETCH, LAUNCH_EASE);
-		load.launch_at = performance.now();
+		domShare = Math.max(domShare, view.share);
+		setShare(domShare, 0.2, 'linear');
+		text.textContent = view.text;
 	}
 
-	// M8-459: промис — через n кадров браузера (анимация шкалы уже передана потоку композиции).
-	function frames(n) {
-		return new Promise((resolve) => {
-			const step = () => (n-- <= 0 ? resolve() : window.requestAnimationFrame(step));
-			window.requestAnimationFrame(step);
+	function count(name, got, wire) {
+		firstByte = firstByte || performance.now();
+		counted[name] = [got, wire];
+		model.got(name, got, wire);
+		tell({ t: 'got', name: name, got: got, wire: wire });
+		paint();
+	}
+
+	function mark(key) {
+		if (launched) {
+			stepTimes.push([key, performance.now()]);
+		}
+		model.mark(key, performance.now());
+		tell({ t: 'mark', key: key });
+	}
+
+	// M8-477: шаги этого запуска — в память устройства: метка и сколько шёл шаг.
+	function saveSteps() {
+		let from = load.launch_at;
+		const steps = stepTimes.map((step) => {
+			const spent = Math.max(1, Math.round(step[1] - from));
+			from = step[1];
+			return [step[0], spent];
+		});
+		if (!stepsFit(steps)) {
+			return;
+		}
+		try {
+			window.localStorage.setItem(STEPS_KEY, JSON.stringify(steps));
+		} catch (e) {
+			load.stored = false;
+		}
+	}
+
+	// Счёт байт ответа response на файл name по ходу чтения его тела; возвращает тело со счётом.
+	function tracked(name, response) {
+		const encoding = (response.headers.get('content-encoding') || '').toLowerCase();
+		const length = Number(response.headers.get('content-length')) || 0;
+		const raw = Number(RAW[name]) || 0;
+		const wire = length || (encoding ? guess(name, encoding, raw) : raw);
+		let got = 0;
+		const reader = response.body.getReader();
+		return new ReadableStream({
+			pull(controller) {
+				return reader.read().then(({ done, value }) => {
+					if (done) {
+						controller.close();
+						return;
+					}
+					got += value.byteLength;
+					count(name, got, wire);
+					controller.enqueue(value);
+				});
+			},
+			cancel(reason) {
+				return reader.cancel(reason);
+			},
 		});
 	}
 
-	// «7,2 из 18,5 МБ» — сколько пришло по сети из скольких (по-английски «7.2 of 18.5 MB»); шкала — barShare, после
-	// launch — анимация запуска (надпись — всегда).
-	function progress() {
-		const [current, total] = wire();
-		if (total <= 0) {
-			return;
-		}
-		if (!launched) {
-			const share = Math.max(shown, barShare(current, total)); // M8-390: шкала не идёт назад
-			shown = share;
-			bar.classList.remove('wait');
-			setShare(share, 0.2, 'linear');
-		}
-		text.textContent = ru ? number.format(current / MB) + ' из ' + number.format(total / MB) + ' МБ'
-			: number.format(current / MB) + ' of ' + number.format(total / MB) + ' MB';
-	}
-
 	// Ответы на файлы загрузки движка: размер в сети — из заголовков, пришедшие байты — по ходу чтения тела.
+	// M8-478: index.wasm движку — пустой ответ (он лишь ждёт начала ответа), сборщику браузера — настоящий
+	// (instantiateStreaming ниже), счёт байт — по его копии.
 	const nativeFetch = window.fetch.bind(window);
 	window.fetch = function (input, init) {
 		const url = typeof input === 'string' ? input : (input && input.url) || '';
@@ -532,49 +988,247 @@ window.__caldera_packs = (function () {
 			if (!response.ok || !response.body) {
 				return response;
 			}
-			const encoding = (response.headers.get('content-encoding') || '').toLowerCase();
-			const length = Number(response.headers.get('content-length')) || 0;
-			const file = files[name] = { raw: Number(RAW[name]) || 0, wire: length || (encoding ? guess(name, encoding)
-				: Number(RAW[name]) || 0), got: 0 };
-			const reader = response.body.getReader();
-			const body = new ReadableStream({
-				pull(controller) {
-					return reader.read().then(({ done, value }) => {
-						if (done) {
-							controller.close();
-							return;
-						}
-						file.got += value.byteLength;
-						progress();
-						controller.enqueue(value);
-					});
-				},
-				cancel(reason) {
-					return reader.cancel(reason);
-				},
-			});
-			return new Response(body, { status: response.status, statusText: response.statusText,
+			if (name === wasm && streaming) {
+				wasmReal = response;
+				const reader = tracked(name, response.clone()).getReader();
+				const drain = () => reader.read().then(({ done }) => (done ? null : drain()));
+				drain().catch(() => {});
+				return new Response(new Uint8Array(0), { status: 200,
+					headers: { 'content-type': 'application/wasm' } });
+			}
+			return new Response(tracked(name, response), { status: response.status, statusText: response.statusText,
 				headers: response.headers });
 		});
 	};
+	// M8-478: сборщик браузера получает настоящий ответ сети — собранный код движка ложится в кэш браузера. Сервер
+	// отдал wasm не тем типом — потоковая сборка такой ответ не берёт: то же тело под нужным типом (без кэша кода).
+	const nativeInstantiate = WebAssembly.instantiateStreaming;
+	if (streaming) {
+		WebAssembly.instantiateStreaming = function (source, imports) {
+			WebAssembly.instantiateStreaming = nativeInstantiate;
+			if (!wasmReal) {
+				return nativeInstantiate.call(WebAssembly, source, imports);
+			}
+			const typed = (wasmReal.headers.get('content-type') || '').toLowerCase().startsWith('application/wasm');
+			return nativeInstantiate.call(WebAssembly, typed ? wasmReal : new Response(wasmReal.body,
+				{ status: wasmReal.status, headers: { 'content-type': 'application/wasm' } }), imports);
+		};
+	}
+
+	// M8-477: поток страницы (Web Worker). Ответил «готов» — пакеты старта качает он; а где можно (CANVAS_OK и
+	// OffscreenCanvas), он же рисует шкалу и надпись на холсте, страница свои прячет. Не ответил до запуска движка
+	// (запрет площадки, старый браузер) — всё делает страница.
+	function canvasSize() {
+		const box = dom.hidden ? canvas : dom;
+		return { w: Math.max(1, Math.round(box.getBoundingClientRect().width)), h: CANVAS_H,
+			dpr: Math.min(3, window.devicePixelRatio || 1) };
+	}
+
+	function startWorker() {
+		if (!window.Worker) {
+			return;
+		}
+		let helper = null;
+		try {
+			const source = [LoadModel, LoadPainter, loadWorker].map(String).join('\n') + '\nloadWorker(self);';
+			helper = new Worker(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+		} catch (e) {
+			return;
+		}
+		helper.onmessage = function (event) {
+			const d = event.data;
+			if (d.t === 'ready' && !worker && !launched) {
+				worker = helper;
+				load.worker = true;
+				if (!CANVAS_OK || !window.OffscreenCanvas || !canvas.transferControlToOffscreen) {
+					helper.postMessage({ t: 'init', canvas: null, ru: ru });
+					return;
+				}
+				const size = canvasSize();
+				const off = canvas.transferControlToOffscreen();
+				drawn = true;
+				load.mode = 'canvas';
+				helper.postMessage({ t: 'init', canvas: off, ru: ru, w: size.w, h: size.h, dpr: size.dpr }, [off]);
+				for (const name in declared) { // поток узнаёт всё, что уже объявлено и уже пришло
+					helper.postMessage({ t: 'file', name: name, raw: declared[name][0], wire: declared[name][1],
+						need: declared[name][2] });
+					if (counted[name]) {
+						helper.postMessage({ t: 'got', name: name, got: counted[name][0], wire: counted[name][1] });
+					}
+				}
+				canvas.hidden = false;
+				dom.hidden = true;
+			} else if (d.t === 'got') {
+				firstGot(d.name, d.got, d.wire);
+			} else if (d.t === 'file') {
+				load.first_wall = Math.max(load.first_wall || 0, d.at); // когда пакет старта пришёл (часы Date.now)
+				firstGot(d.name, d.got, d.wire);
+				firstDone(d.name, d.buffer);
+			} else if (d.t === 'fail') {
+				firstFailed(d.name);
+			}
+		};
+		helper.onerror = function () {
+			if (worker === helper) { // поток упал уже в работе: пакеты старта, что он качал, игра заберёт сама
+				for (const name in firstJobs) {
+					if (firstJobs[name].state === 'loading' && !firstJobs[name].buffer) {
+						firstFailed(name);
+					}
+				}
+			}
+		};
+		window.addEventListener('resize', () => {
+			const size = canvasSize();
+			tell({ t: 'size', w: size.w, h: size.h, dpr: size.dpr });
+		});
+	}
+
+	// M8-477: пакеты старта. Файл name: пришло got байт; пришёл целиком (buffer); не пришёл.
+	const declared = {}; // имя → [raw, wire, need] — всё, что объявлено счёту (потоку — когда он будет готов)
+	const counted = {}; // имя → [got, wire] — сколько уже пришло у файлов, что качает страница
+	function firstGot(name, got, wire) {
+		if (firstJobs[name]) {
+			firstJobs[name].got = got;
+		}
+		model.got(name, got, wire);
+		paint();
+	}
+
+	function firstDone(name, buffer) {
+		const job = firstJobs[name];
+		if (job && job.state === 'loading' && !job.buffer) {
+			job.buffer = buffer;
+			window.__caldera_packs.settle(job);
+			firstLeft -= 1;
+		}
+	}
+
+	function firstFailed(name) {
+		const job = firstJobs[name];
+		if (job && job.state === 'loading' && !job.buffer) {
+			job.state = 'failed';
+			firstLeft -= 1;
+			model.drop(name);
+			tell({ t: 'file', name: name, raw: 0, wire: 0, need: false });
+		}
+	}
+
+	// Пакеты старта — качать: поток страницы, если он есть, иначе сама страница (тогда они придут после запуска).
+	function fetchFirst() {
+		CALDERA_FIRST.forEach((item) => {
+			const name = String(item.file).split('/').pop();
+			const url = new URL(item.file, document.baseURI).href;
+			if (worker) {
+				firstJobs[name] = window.__caldera_packs.adopt(name);
+				post({ t: 'fetch', name: name, url: url, size: Number(item.size) || 0 });
+				return;
+			}
+			const job = firstJobs[name] = window.__caldera_packs.adopt(name, window.__caldera_packs.load(url,
+				Number(item.size) || 0));
+			const watch = setInterval(() => {
+				model.got(name, job.got, 0);
+				paint();
+				if (job.state !== 'loading' || job.buffer) {
+					clearInterval(watch);
+					firstLeft -= 1;
+					if (job.state === 'failed') {
+						model.drop(name);
+					}
+				}
+			}, 100);
+		});
+	}
+
+	// M8-459, M8-477: пришло всё, без чего движок не запустить. Шкалу на холсте поток страницы ведёт сам (шаги запуска
+	// и мегабайты пакетов старта). Шкала страницы, пока движок запускается, стоять не должна, а страница в это время
+	// не работает — её ведёт анимация браузера длиной во время запуска с запасом: всё пришло — к TAIL, плавно
+	// замедляясь; пакеты старта ещё идут — ровно, туда, куда мегабайты дойдут за это время при нынешней скорости сети.
+	// Надпись страницы на время запуска — «Запускаем игру…»: мегабайты она в это время считать не может (число стояло
+	// бы на месте), после запуска — снова по счёту.
+	function launch() {
+		if (launched) {
+			return;
+		}
+		launched = true;
+		const pace = startSeconds * 1000 / model.totalRef;
+		model.launch(performance.now(), pace, ownSteps);
+		tell({ t: 'launch', pace: pace, steps: ownSteps });
+		if (!drawn) {
+			const view = model.view(performance.now());
+			const spent = Math.max(0.05, (performance.now() - firstByte) / 1000);
+			const seconds = startSeconds * LAUNCH_STRETCH;
+			domShare = view.loaded ? TAIL : Math.min(TAIL, view.share * (1 + seconds / spent));
+			busy = true;
+			bar.classList.remove('wait');
+			setShare(domShare, seconds, view.loaded ? LAUNCH_EASE : 'linear');
+			text.textContent = model.launchText;
+		}
+		load.launch_at = performance.now();
+		load.launch_wall = Date.now();
+	}
+
+	// Движок запустился: шкала страницы — с места, до которого дошла анимация запуска (её цель могла быть дальше).
+	// Место читается в следующем кадре браузера: в задаче, где шёл запуск, часы анимаций страницы стоят на его начале
+	// (шкала прыгнула бы назад).
+	function launchDone() {
+		if (drawn) {
+			busy = false;
+			return;
+		}
+		window.requestAnimationFrame(() => {
+			try {
+				domShare = Math.min(domShare, new DOMMatrixReadOnly(window.getComputedStyle(fill).transform).a);
+			} catch (e) {
+				load.matrix = false;
+			}
+			busy = false;
+			paint();
+		});
+	}
+
+	// M8-459: промис — через n кадров браузера (анимация шкалы уже передана потоку композиции).
+	function frames(n) {
+		return new Promise((resolve) => {
+			const step = () => (n-- <= 0 ? resolve() : window.requestAnimationFrame(step));
+			window.requestAnimationFrame(step);
+		});
+	}
 
 	function hide() {
 		if (loader.classList.contains('gone')) {
 			return;
 		}
-		setShare(1, 0.15, 'linear'); // M8-390: первый экран открыт — шкала полная
+		if (!drawn) {
+			setShare(1, 0.15, 'linear'); // M8-390: первый экран открыт — шкала полная
+			text.textContent = model.view(performance.now()).text;
+		}
 		loader.classList.add('gone');
-		setTimeout(() => loader.remove(), 600);
+		setTimeout(() => {
+			if (worker) { // пакеты старта уже у страницы — поток больше не нужен
+				worker.terminate();
+				worker = null;
+			}
+			loader.remove();
+		}, 600);
 	}
 
-	// Игра открыла первый экран (главное меню или сцена дымового прогона) — страница загрузки уходит.
+	// Игра открыла первый экран (главное меню или сцена дымового прогона) и пакеты старта скачаны — страница загрузки
+	// уходит. Экрана нет дольше HIDE_AFTER_MS после запуска — уходит и так; пакеты старта ещё идут — ждёт их
+	// (мегабайты на шкале), не пришли — игра заберёт их сама.
 	function waitScene() {
 		const started = performance.now();
 		const timer = setInterval(() => {
 			const state = window.__caldera;
-			if ((state && state.scene) || performance.now() - started > HIDE_AFTER_MS) {
-				clearInterval(timer);
+			const scene = !!(state && state.scene);
+			if (scene && !load.scene_at) {
 				load.scene_at = performance.now();
+				load.scene_wall = Date.now();
+				mark('scene');
+				saveSteps();
+			}
+			if ((scene || performance.now() - started > HIDE_AFTER_MS) && firstLeft <= 0) {
+				clearInterval(timer);
+				load.shown_at = performance.now();
 				hide();
 			}
 		}, 100);
@@ -583,6 +1237,8 @@ window.__caldera_packs = (function () {
 	function fail(err) {
 		console.error(err);
 		const message = err instanceof Error ? err.message : (typeof err === 'string' ? err : 'An unknown error occurred.');
+		canvas.hidden = true;
+		dom.hidden = false;
 		bar.style.display = 'none';
 		text.style.display = 'none';
 		notice.textContent = message;
@@ -597,15 +1253,35 @@ window.__caldera_packs = (function () {
 			+ missing.join('\n'));
 		return;
 	}
-	// M8-459: как engine.startGame, но между загрузкой и запуском — анимация шкалы и два кадра браузера.
-	const exe = GODOT_CONFIG['executable'];
-	const pack = GODOT_CONFIG['mainPack'] || exe + '.pck';
+	window.__caldera_print = function (line) {
+		for (let i = 0; i < PRINTS.length; i++) {
+			if (line.indexOf(PRINTS[i][0]) >= 0) {
+				mark(PRINTS[i][1]);
+			}
+		}
+	};
+	for (const name in RAW) {
+		declared[name] = [Number(RAW[name]) || 0, guess(name, '', Number(RAW[name]) || 0), true];
+	}
+	CALDERA_FIRST.forEach((item) => {
+		const name = String(item.file).split('/').pop();
+		declared[name] = [Number(item.size) || 0, guess(item.file, '', Number(item.size) || 0), false];
+	});
+	for (const name in declared) {
+		model.file(name, declared[name][0], declared[name][1], declared[name][2]);
+	}
+	firstLeft = CALDERA_FIRST.length;
+	startWorker();
+	// M8-459: как engine.startGame, но между загрузкой и запуском — шкала и два кадра браузера. M8-477: пришли
+	// index.wasm и index.pck — пакеты старта начинают качаться, движок запускается.
 	Promise.all([engine.init(exe), engine.preloadFile(pack, pack)]).then(() => {
 		window.fetch = nativeFetch;
-		progress();
+		paint();
+		fetchFirst();
 		launch();
 		return frames(2);
 	}).then(() => engine.start({ 'args': ['--main-pack', pack].concat(GODOT_CONFIG['args'] || []) })).then(() => {
+		launchDone();
 		waitScene();
 	}, fail);
 }());
